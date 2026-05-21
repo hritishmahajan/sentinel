@@ -1,0 +1,52 @@
+# Sentinel — Fly.io deployment config
+# Generated for: fly.io platform
+# Docs: https://fly.io/docs/reference/configuration/
+
+app = "sentinel-gateway"
+primary_region = "sin"  # Singapore — closest to India, aligns with kAIgentic's HQ
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ENVIRONMENT = "prod"
+  LOG_FORMAT   = "json"
+  LOG_LEVEL    = "INFO"
+  HOST         = "0.0.0.0"
+  PORT         = "8000"
+
+[http_service]
+  internal_port        = 8000
+  force_https          = true
+  auto_stop_machines   = true   # scale to zero when idle (free tier friendly)
+  auto_start_machines  = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type       = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[deploy]
+  # Run migrations before the new version takes traffic.
+  # If migrations fail, the old version keeps running.
+  release_command = "alembic upgrade head"
+
+[[statics]]
+  guest_path = "/app/dashboard"
+  url_prefix  = "/console"
+
+[checks]
+  [checks.health]
+    grace_period = "10s"
+    interval     = "15s"
+    method       = "GET"
+    path         = "/health"
+    port         = 8000
+    timeout      = "5s"
+    type         = "http"

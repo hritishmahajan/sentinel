@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sentinel"
+version = "0.1.0"
+description = "Sentinel — a governed LLM gateway for enterprises."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Hritish" }]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.27",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "redis>=5.1",
+    "structlog>=24.4",
+    "prometheus-client>=0.21",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "anthropic>=0.39",
+    "openai>=1.54",
+    "tenacity>=9.0",
+    "python-json-logger>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.27",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "types-redis>=4.6",
+]
+
+[project.scripts]
+sentinel = "sentinel.api.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sentinel", "src/sentinel_sdk"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF"]
+ignore = ["B008"]  # FastAPI dependency-injection pattern
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/", "tests/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --cov=sentinel --cov-report=term-missing"
+markers = [
+    "integration: requires external services (db, redis)",
+    "eval: LLM evaluation tests (cost money to run)",
+]

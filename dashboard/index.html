@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentinel — Gateway Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & base ──────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #080810;
+    --bg2:       #0d0d1a;
+    --bg3:       #12121f;
+    --border:    #1e1e35;
+    --border2:   #2a2a45;
+    --amber:     #f59e0b;
+    --amber-dim: #92600a;
+    --green:     #22c55e;
+    --red:       #ef4444;
+    --blue:      #3b82f6;
+    --muted:     #4a4a6a;
+    --text:      #c8c8e0;
+    --text-dim:  #6b6b90;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'DM Sans', sans-serif;
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.06) 2px,
+      rgba(0,0,0,0.06) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────────── */
+  .shell {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: 44px 1fr;
+    height: 100vh;
+    gap: 0;
+  }
+
+  /* ── Top bar ─────────────────────────────────────────────────── */
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    position: relative;
+    z-index: 10;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--amber);
+  }
+
+  .logo-icon {
+    width: 22px; height: 22px;
+    border: 1.5px solid var(--amber);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    position: relative;
+  }
+  .logo-icon::before {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    background: var(--amber);
+    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  }
+
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse 2s infinite;
+  }
+  .status-dot.dead { background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .gateway-url {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .url-input {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    width: 220px;
+    outline: none;
+  }
+  .url-input:focus { border-color: var(--amber); }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding: 4px 12px;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn:hover { border-color: var(--amber); color: var(--amber); }
+  .btn.primary { border-color: var(--amber); color: var(--amber); }
+  .btn.primary:hover { background: var(--amber); color: var(--bg); }
+
+  .clock {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    min-width: 80px;
+    text-align: right;
+  }
+
+  /* ── Sidebar ─────────────────────────────────────────────────── */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    background: var(--bg2);
+    display: flex;
+    flex-direction: column;
+    padding: 12px 0;
+    overflow-y: auto;
+  }
+
+  .sidebar-section {
+    padding: 0 8px 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-top: 12px;
+  }
+  .sidebar-section:first-child { margin-top: 0; }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    border-left: 2px solid transparent;
+    transition: all 0.12s;
+    user-select: none;
+  }
+  .nav-item:hover { color: var(--text); background: var(--bg3); }
+  .nav-item.active {
+    color: var(--amber);
+    border-left-color: var(--amber);
+    background: rgba(245,158,11,0.06);
+  }
+  .nav-icon { width: 14px; text-align: center; font-size: 12px; }
+
+  /* ── Main content ────────────────────────────────────────────── */
+  .main {
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── Page headers ────────────────────────────────────────────── */
+  .page { display: none; flex-direction: column; gap: 16px; }
+  .page.active { display: flex; }
+
+  .page-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .page-title::before {
+    content: '//';
+    color: var(--amber);
+  }
+
+  /* ── Stat cards ──────────────────────────────────────────────── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .stat-card {
+    background: var(--bg2);
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: var(--amber);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.4s ease;
+  }
+  .stat-card.loaded::after { transform: scaleX(1); }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--amber);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .stat-sub {
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  .stat-sub .up { color: var(--green); }
+  .stat-sub .down { color: var(--red); }
+
+  /* ── Provider health ─────────────────────────────────────────── */
+  .provider-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .provider-card {
+    background: var(--bg2);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .provider-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+
+  .provider-status {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+  }
+  .provider-status.ok { color: var(--green); }
+  .provider-status.degraded { color: var(--amber); }
+  .provider-status.circuit_open { color: var(--red); }
+  .provider-status.unconfigured { color: var(--muted); }
+
+  /* ── Section header ──────────────────────────────────────────── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+
+  .section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  /* ── Table ───────────────────────────────────────────────────── */
+  .table-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  thead tr {
+    border-bottom: 1px solid var(--border2);
+    background: var(--bg3);
+  }
+
+  th {
+    padding: 8px 12px;
+    text-align: left;
+    color: var(--text-dim);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+  td {
+    padding: 9px 12px;
+    color: var(--text);
+    vertical-align: middle;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    border: 1px solid currentColor;
+    text-transform: uppercase;
+  }
+  .badge.allow { color: var(--green); }
+  .badge.deny, .badge.injection_blocked, .badge.rate_limited { color: var(--red); }
+  .badge.anthropic { color: #c084fc; }
+  .badge.openai { color: var(--blue); }
+
+  .status-200 { color: var(--green); }
+  .status-403, .status-429, .status-502, .status-503 { color: var(--red); }
+
+  .mono { font-family: var(--mono); }
+  .dim { color: var(--text-dim); }
+  .truncate { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Latency bar ─────────────────────────────────────────────── */
+  .latency-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .bar-track {
+    width: 60px;
+    height: 4px;
+    background: var(--border2);
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--amber);
+    transition: width 0.3s;
+  }
+  .bar-fill.slow { background: var(--red); }
+  .bar-fill.fast { background: var(--green); }
+
+  /* ── Charts ──────────────────────────────────────────────────── */
+  .chart-container {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  .chart-title {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  canvas { display: block; }
+
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  /* ── Form / input ────────────────────────────────────────────── */
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .form-input {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+  .form-input:focus { border-color: var(--amber); }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+  /* ── Tenant cards ────────────────────────────────────────────── */
+  .tenant-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
+  .tenant-row {
+    background: var(--bg2);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: background 0.1s;
+  }
+  .tenant-row:hover { background: var(--bg3); }
+  .tenant-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .tenant-id {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .tenant-actions { display: flex; gap: 8px; }
+
+  /* ── Key display ─────────────────────────────────────────────── */
+  .key-reveal {
+    background: var(--bg3);
+    border: 1px solid var(--amber);
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--amber);
+    word-break: break-all;
+    position: relative;
+    margin-top: 8px;
+  }
+  .key-reveal .key-warning {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ── Loading / empty ─────────────────────────────────────────── */
+  .empty {
+    padding: 40px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 1.5px solid var(--border2);
+    border-top-color: var(--amber);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Toast ───────────────────────────────────────────────────── */
+  .toast-shelf {
+    position: fixed;
+    bottom: 20px; right: 20px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 9000;
+  }
+  .toast {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-left: 3px solid var(--amber);
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    min-width: 240px;
+    animation: slide-in 0.2s ease;
+  }
+  .toast.error { border-left-color: var(--red); }
+  .toast.success { border-left-color: var(--green); }
+  @keyframes slide-in {
+    from { transform: translateX(20px); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+  }
+
+  /* ── Misc ────────────────────────────────────────────────────── */
+  .flex { display: flex; }
+  .gap-8 { gap: 8px; }
+  .gap-12 { gap: 12px; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .mt-4 { margin-top: 4px; }
+  .w-full { width: 100%; }
+  hr.rule { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-icon"></div>
+      SENTINEL
+      <span style="color:var(--text-dim);font-weight:300;font-size:10px;letter-spacing:0.04em">/ GATEWAY CONSOLE</span>
+    </div>
+    <div class="topbar-right">
+      <div class="gateway-url">
+        <span style="color:var(--text-dim)">GW://</span>
+        <input class="url-input" id="gatewayUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+        <button class="btn primary" onclick="connectGateway()">CONNECT</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="status-dot dead" id="statusDot"></div>
+        <span id="statusText">DISCONNECTED</span>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sidebar-section">Monitor</div>
+    <div class="nav-item active" onclick="showPage('overview')">
+      <span class="nav-icon">◈</span> Overview
+    </div>
+    <div class="nav-item" onclick="showPage('audit')">
+      <span class="nav-icon">≡</span> Audit Log
+    </div>
+    <div class="sidebar-section">Manage</div>
+    <div class="nav-item" onclick="showPage('tenants')">
+      <span class="nav-icon">◻</span> Tenants
+    </div>
+    <div class="nav-item" onclick="showPage('playground')">
+      <span class="nav-icon">▷</span> Playground
+    </div>
+    <div style="flex:1"></div>
+    <div style="padding:12px;font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.08em;">
+      v0.1.0 · MIT
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- OVERVIEW PAGE -->
+    <div class="page active" id="page-overview">
+      <div class="page-title">System Overview</div>
+
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card" id="sc-requests">
+          <div class="stat-label">Total Requests</div>
+          <div class="stat-value" id="sv-requests">—</div>
+          <div class="stat-sub" id="ss-requests">Connect to load</div>
+        </div>
+        <div class="stat-card" id="sc-cost">
+          <div class="stat-label">Spend Today</div>
+          <div class="stat-value" id="sv-cost">—</div>
+          <div class="stat-sub" id="ss-cost">USD</div>
+        </div>
+        <div class="stat-card" id="sc-latency">
+          <div class="stat-label">Avg Latency</div>
+          <div class="stat-value" id="sv-latency">—</div>
+          <div class="stat-sub" id="ss-latency">milliseconds</div>
+        </div>
+        <div class="stat-card" id="sc-tenants">
+          <div class="stat-label">Active Tenants</div>
+          <div class="stat-value" id="sv-tenants">—</div>
+          <div class="stat-sub" id="ss-tenants">registered</div>
+        </div>
+      </div>
+
+      <!-- Provider health -->
+      <div>
+        <div class="section-header" style="margin-bottom:1px;">
+          <div class="section-title">Provider Health</div>
+          <button class="btn" onclick="loadHealth()" style="font-size:9px;padding:3px 8px;">↺ REFRESH</button>
+        </div>
+        <div class="provider-grid" id="providerGrid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="provider-card">
+            <span class="provider-name">anthropic</span>
+            <span class="provider-status unconfigured" id="ph-anthropic">LOADING</span>
+          </div>
+          <div class="provider-card">
+            <span class="provider-name">openai</span>
+            <span class="provider-status unconfigured" id="ph-openai">LOADING</span>
+          </div>
+          <div class="provider-card">
+            <span class="provider-name">grok (xAI)</span>
+            <span class="provider-status unconfigured" id="ph-grok">LOADING</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cost by tenant -->
+      <div>
+        <div class="section-header" style="margin-bottom:8px;">
+          <div class="section-title">Cost by Tenant (All Time)</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tenant ID</th>
+                <th>Requests</th>
+                <th>Input Tokens</th>
+                <th>Output Tokens</th>
+                <th>Avg Latency</th>
+                <th>Total Cost</th>
+              </tr>
+            </thead>
+            <tbody id="costTable">
+              <tr><td colspan="6" class="empty">
+                <span class="spinner"></span> Connect to gateway to load data
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDIT LOG PAGE -->
+    <div class="page" id="page-audit">
+      <div class="page-title">Audit Log</div>
+
+      <!-- Filters -->
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select class="form-input" id="auditProvider" style="width:140px;">
+          <option value="">All providers</option>
+          <option value="anthropic">anthropic</option>
+          <option value="openai">openai</option>
+        </select>
+        <select class="form-input" id="auditStatus" style="width:140px;">
+          <option value="">All statuses</option>
+          <option value="200">200 OK</option>
+          <option value="403">403 Denied</option>
+          <option value="429">429 Rate Limited</option>
+          <option value="502">502 Provider Error</option>
+        </select>
+        <button class="btn primary" onclick="loadAudit()">FILTER</button>
+        <button class="btn" onclick="clearAuditFilters()">CLEAR</button>
+        <span id="auditCount" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-left:auto;"></span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Request ID</th>
+              <th>Provider</th>
+              <th>Model</th>
+              <th>Tokens</th>
+              <th>Latency</th>
+              <th>Cost</th>
+              <th>Status</th>
+              <th>Decision</th>
+            </tr>
+          </thead>
+          <tbody id="auditTable">
+            <tr><td colspan="9" class="empty">
+              <span class="spinner"></span> Connect to gateway to load audit log
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn" id="auditPrev" onclick="auditPage(-1)" disabled>← PREV</button>
+        <span id="auditPageInfo" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">Page 1</span>
+        <button class="btn" id="auditNext" onclick="auditPage(1)">NEXT →</button>
+      </div>
+    </div>
+
+    <!-- TENANTS PAGE -->
+    <div class="page" id="page-tenants">
+      <div class="page-title">Tenant Management</div>
+
+      <!-- Create tenant form -->
+      <div class="chart-container">
+        <div class="chart-title">New Tenant</div>
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Tenant Name</label>
+            <input class="form-input" id="newTenantName" placeholder="acme-corp" maxlength="255">
+          </div>
+          <button class="btn primary" onclick="createTenant()" style="padding:7px 16px;">CREATE</button>
+        </div>
+      </div>
+
+      <!-- Tenant list -->
+      <div>
+        <div class="section-header" style="margin-bottom:8px;">
+          <div class="section-title">Registered Tenants</div>
+          <button class="btn" onclick="loadTenants()" style="font-size:9px;padding:3px 8px;">↺ REFRESH</button>
+        </div>
+        <div class="tenant-list" id="tenantList">
+          <div class="empty"><span class="spinner"></span> Loading...</div>
+        </div>
+      </div>
+
+      <!-- Selected tenant detail -->
+      <div id="tenantDetail" style="display:none;">
+        <hr class="rule" style="margin:8px 0;">
+        <div class="chart-container">
+          <div class="chart-title" id="tenantDetailTitle">TENANT / API KEYS</div>
+
+          <!-- Issue key -->
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:flex-end;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">Key Label</label>
+              <input class="form-input" id="newKeyLabel" placeholder="production" value="default">
+            </div>
+            <button class="btn primary" onclick="issueKey()" style="padding:7px 16px;">ISSUE KEY</button>
+          </div>
+
+          <!-- Newly issued key -->
+          <div id="newKeyReveal" style="display:none;" class="key-reveal">
+            <div class="key-warning">⚠ Plaintext shown once — store immediately</div>
+            <div id="newKeyValue"></div>
+          </div>
+
+          <!-- Existing keys -->
+          <div id="keyList" style="margin-top:12px;"></div>
+        </div>
+
+        <!-- Policy editor -->
+        <div class="chart-container" style="margin-top:1px;">
+          <div class="chart-title">TENANT POLICY</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Max Tokens / Request</label>
+              <input class="form-input" id="pol-maxTokens" type="number" value="4096">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Requests / Minute</label>
+              <input class="form-input" id="pol-maxRpm" type="number" value="60">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Monthly Cost Ceiling (USD)</label>
+              <input class="form-input" id="pol-costCeiling" type="number" value="100">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Redact PII</label>
+              <select class="form-input" id="pol-redactPii">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Allowed Models (comma-separated, blank = all)</label>
+              <input class="form-input" id="pol-allowedModels" placeholder="claude-sonnet-4-5,gpt-4o">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Denied Topics (comma-separated)</label>
+              <input class="form-input" id="pol-deniedTopics" placeholder="weapons,malware">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn primary" onclick="savePolicy()">SAVE POLICY</button>
+            <button class="btn" onclick="loadPolicy()">↺ RELOAD</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PLAYGROUND PAGE -->
+    <div class="page" id="page-playground">
+      <div class="page-title">Gateway Playground</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);">
+        <!-- Request -->
+        <div class="chart-container">
+          <div class="chart-title">REQUEST</div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label">API Key (optional)</label>
+            <input class="form-input" id="pg-apiKey" placeholder="sk_live_...">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label">Model</label>
+            <select class="form-input" id="pg-model">
+              <option value="grok-3-mini" selected>grok-3-mini (xAI)</option>
+              <option value="grok-3">grok-3 (xAI)</option>
+              <option value="grok-3-fast">grok-3-fast (xAI)</option>
+              <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
+              <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label">System Prompt (optional)</label>
+            <textarea class="form-input" id="pg-system" rows="2" placeholder="You are a helpful assistant."></textarea>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label">Message</label>
+            <textarea class="form-input" id="pg-message" rows="4" placeholder="What is the capital of France?"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">Max Tokens</label>
+              <input class="form-input" id="pg-maxTokens" type="number" value="512">
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">Temperature</label>
+              <input class="form-input" id="pg-temp" type="number" value="1.0" step="0.1" min="0" max="2">
+            </div>
+          </div>
+          <button class="btn primary w-full" style="margin-top:12px;padding:10px;" onclick="sendPlayground()">
+            ▷ SEND REQUEST
+          </button>
+        </div>
+
+        <!-- Response -->
+        <div class="chart-container">
+          <div class="chart-title" style="display:flex;justify-content:space-between;">
+            <span>RESPONSE</span>
+            <span id="pg-meta" style="color:var(--text-dim);"></span>
+          </div>
+          <div id="pg-response" style="
+            font-family:var(--mono);font-size:12px;color:var(--text);
+            min-height:200px;white-space:pre-wrap;word-break:break-word;
+            border:1px solid var(--border);padding:12px;background:var(--bg);
+            overflow-y:auto;max-height:420px;
+          ">// Response will appear here</div>
+
+          <div id="pg-details" style="margin-top:12px;display:none;">
+            <table style="width:100%;">
+              <tbody id="pg-detail-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- TOAST SHELF -->
+<div class="toast-shelf" id="toastShelf"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let GW = 'http://localhost:8000';
+let connected = false;
+let selectedTenantId = null;
+let auditCursor = null;
+let auditCursorStack = [];
+let auditPageNum = 1;
+let refreshInterval = null;
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function $(id) { return document.getElementById(id); }
+
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  $('toastShelf').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function fmt(n, decimals = 0) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function fmtCost(n) {
+  if (n == null || isNaN(n)) return '—';
+  const v = Number(n);
+  return v < 0.001 ? '$' + v.toFixed(6) : '$' + v.toFixed(4);
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+
+async function api(path, opts = {}) {
+  const url = GW + path;
+  const resp = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    ...opts,
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: { message: resp.statusText } }));
+    throw new Error(err?.error?.message || err?.detail || resp.statusText);
+  }
+  return resp.json();
+}
+
+// ── Clock ──────────────────────────────────────────────────────────────────
+function tickClock() {
+  $('clock').textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  $('page-' + name).classList.add('active');
+  event?.currentTarget?.classList.add('active');
+
+  if (name === 'overview' && connected) loadOverview();
+  if (name === 'audit' && connected) loadAudit();
+  if (name === 'tenants') loadTenants();
+}
+
+// ── Connect ────────────────────────────────────────────────────────────────
+async function connectGateway() {
+  GW = $('gatewayUrl').value.replace(/\/$/, '');
+  try {
+    const health = await api('/health');
+    connected = true;
+    $('statusDot').classList.remove('dead');
+    $('statusText').textContent = 'CONNECTED';
+    toast('Connected to gateway', 'success');
+    loadOverview();
+
+    clearInterval(refreshInterval);
+    refreshInterval = setInterval(() => {
+      if (document.querySelector('#page-overview.active')) loadOverview();
+    }, 15000);
+
+  } catch (e) {
+    connected = false;
+    $('statusDot').classList.add('dead');
+    $('statusText').textContent = 'ERROR';
+    toast('Connection failed: ' + e.message, 'error');
+  }
+}
+
+// ── Overview ───────────────────────────────────────────────────────────────
+async function loadOverview() {
+  await Promise.all([loadHealth(), loadCostSummary(), loadStatCards()]);
+}
+
+async function loadHealth() {
+  try {
+    const h = await api('/health');
+    const providers = h.providers || {};
+    ['anthropic', 'openai', 'grok'].forEach(name => {
+      const el = $('ph-' + name);
+      const state = providers[name] || 'unconfigured';
+      el.textContent = state.toUpperCase().replace('_', ' ');
+      el.className = 'provider-status ' + state;
+    });
+  } catch (e) {
+    toast('Health check failed: ' + e.message, 'error');
+  }
+}
+
+async function loadCostSummary() {
+  try {
+    const rows = await api('/admin/audit/cost-summary');
+    const tbody = $('costTable');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No data yet — send some requests through the gateway</td></tr>';
+      return;
+    }
+
+    // Summary stats
+    const totalCost = rows.reduce((a, r) => a + r.total_cost_usd, 0);
+    const totalReqs = rows.reduce((a, r) => a + r.total_requests, 0);
+    const avgLat = rows.length ? rows.reduce((a, r) => a + r.avg_latency_ms, 0) / rows.length : 0;
+
+    $('sv-requests').textContent = fmt(totalReqs);
+    $('sv-cost').textContent = '$' + totalCost.toFixed(4);
+    $('sv-latency').textContent = fmt(avgLat) + 'ms';
+    ['sc-requests','sc-cost','sc-latency'].forEach(id => $( id).classList.add('loaded'));
+
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td class="mono dim truncate" style="max-width:140px;">${r.tenant_id || 'anonymous'}</td>
+        <td class="mono">${fmt(r.total_requests)}</td>
+        <td class="mono">${fmt(r.total_input_tokens)}</td>
+        <td class="mono">${fmt(r.total_output_tokens)}</td>
+        <td>${latencyBar(r.avg_latency_ms)}</td>
+        <td class="mono" style="color:var(--amber)">${fmtCost(r.total_cost_usd)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    $('costTable').innerHTML = `<tr><td colspan="6" class="empty">Failed to load: ${e.message}</td></tr>`;
+  }
+}
+
+async function loadStatCards() {
+  try {
+    const tenants = await api('/admin/tenants');
+    const active = tenants.filter(t => t.is_active).length;
+    $('sv-tenants').textContent = active;
+    $('sc-tenants').classList.add('loaded');
+  } catch(_) {}
+}
+
+function latencyBar(ms) {
+  const pct = Math.min(100, ms / 50); // 5000ms = 100%
+  const cls = ms < 500 ? 'fast' : ms < 2000 ? '' : 'slow';
+  return `<div class="latency-bar">
+    <div class="bar-track"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+    <span class="mono dim" style="font-size:10px;">${fmt(ms)}ms</span>
+  </div>`;
+}
+
+// ── Audit Log ──────────────────────────────────────────────────────────────
+async function loadAudit(reset = true) {
+  if (reset) { auditCursor = null; auditCursorStack = []; auditPageNum = 1; }
+  try {
+    const provider = $('auditProvider').value;
+    const status = $('auditStatus').value;
+    let path = `/admin/audit?limit=20`;
+    if (provider) path += `&provider=${provider}`;
+    if (status) path += `&status_code=${status}`;
+    if (auditCursor) path += `&cursor=${auditCursor}`;
+
+    const page = await api(path);
+    $('auditCount').textContent = `${page.total} total`;
+
+    const tbody = $('auditTable');
+    if (!page.rows.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">No records match the current filters</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = page.rows.map(r => `
+      <tr>
+        <td class="mono dim" style="font-size:10px;white-space:nowrap;">${fmtTime(r.created_at)}</td>
+        <td class="mono dim truncate" style="max-width:100px;font-size:10px;">${r.request_id.slice(0,16)}…</td>
+        <td><span class="badge ${r.provider}">${r.provider}</span></td>
+        <td class="mono dim" style="font-size:10px;">${r.model.replace('claude-','').replace('-4-5','')}</td>
+        <td class="mono dim" style="font-size:10px;">${fmt(r.input_tokens)}↑ ${fmt(r.output_tokens)}↓</td>
+        <td>${latencyBar(r.latency_ms)}</td>
+        <td class="mono" style="color:var(--amber);font-size:10px;">${fmtCost(r.cost_usd)}</td>
+        <td class="mono status-${r.status_code}">${r.status_code}</td>
+        <td><span class="badge ${r.policy_decision}">${r.policy_decision}</span></td>
+      </tr>
+    `).join('');
+
+    $('auditNext').disabled = !page.has_more;
+    $('auditPrev').disabled = auditPageNum <= 1;
+    $('auditPageInfo').textContent = `Page ${auditPageNum}`;
+
+    if (page.has_more && page.rows.length) {
+      auditCursorStack.push(auditCursor);
+      auditCursor = page.rows[page.rows.length - 1].id;
+    }
+  } catch(e) {
+    $('auditTable').innerHTML = `<tr><td colspan="9" class="empty">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function auditPage(dir) {
+  if (dir === 1) {
+    auditPageNum++;
+    loadAudit(false);
+  } else {
+    auditPageNum--;
+    auditCursor = auditCursorStack.pop() || null;
+    if (auditCursorStack.length) auditCursor = auditCursorStack.pop();
+    else auditCursor = null;
+    loadAudit(false);
+  }
+}
+
+function clearAuditFilters() {
+  $('auditProvider').value = '';
+  $('auditStatus').value = '';
+  loadAudit();
+}
+
+// ── Tenants ────────────────────────────────────────────────────────────────
+async function loadTenants() {
+  const list = $('tenantList');
+  list.innerHTML = '<div class="empty"><span class="spinner"></span> Loading...</div>';
+  if (!connected) {
+    list.innerHTML = '<div class="empty">Not connected to gateway</div>';
+    return;
+  }
+  try {
+    const tenants = await api('/admin/tenants');
+    if (!tenants.length) {
+      list.innerHTML = '<div class="empty">No tenants yet — create one above</div>';
+      return;
+    }
+    list.innerHTML = tenants.map(t => `
+      <div class="tenant-row">
+        <div>
+          <div class="tenant-name">${t.name} ${!t.is_active ? '<span class="badge" style="color:var(--muted)">INACTIVE</span>' : ''}</div>
+          <div class="tenant-id">${t.id}</div>
+        </div>
+        <div class="tenant-actions">
+          <button class="btn" onclick="selectTenant('${t.id}','${t.name}')" style="font-size:9px;padding:3px 8px;">MANAGE</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+    toast('Failed to load tenants: ' + e.message, 'error');
+  }
+}
+
+async function createTenant() {
+  const name = $('newTenantName').value.trim();
+  if (!name) { toast('Tenant name required', 'error'); return; }
+  if (!connected) { toast('Not connected', 'error'); return; }
+  try {
+    await api('/admin/tenants', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    $('newTenantName').value = '';
+    toast(`Tenant '${name}' created`, 'success');
+    loadTenants();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+function selectTenant(id, name) {
+  selectedTenantId = id;
+  $('tenantDetail').style.display = 'block';
+  $('tenantDetailTitle').textContent = `TENANT / ${name.toUpperCase()} / API KEYS`;
+  $('newKeyReveal').style.display = 'none';
+  loadKeys();
+  loadPolicy();
+  $('tenantDetail').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function loadKeys() {
+  if (!selectedTenantId) return;
+  try {
+    const keys = await api(`/admin/tenants/${selectedTenantId}/keys`);
+    $('keyList').innerHTML = keys.length ? `
+      <table style="width:100%;">
+        <thead><tr>
+          <th>Label</th><th>Prefix</th><th>Status</th><th>Last Used</th><th></th>
+        </tr></thead>
+        <tbody>${keys.map(k => `
+          <tr>
+            <td class="mono">${k.label}</td>
+            <td class="mono dim">${k.prefix}…</td>
+            <td><span class="badge ${k.is_active ? 'allow' : 'deny'}">${k.is_active ? 'ACTIVE' : 'REVOKED'}</span></td>
+            <td class="mono dim" style="font-size:10px;">${k.last_used_at ? fmtDate(k.last_used_at) : 'Never'}</td>
+            <td>${k.is_active ? `<button class="btn" onclick="revokeKey('${k.id}')" style="font-size:9px;padding:2px 6px;color:var(--red);border-color:var(--red)">REVOKE</button>` : ''}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table>` : '<div class="dim" style="font-size:11px;padding:8px 0;">No keys issued yet</div>';
+  } catch(e) {
+    toast('Failed to load keys: ' + e.message, 'error');
+  }
+}
+
+async function issueKey() {
+  if (!selectedTenantId) return;
+  const label = $('newKeyLabel').value.trim() || 'default';
+  try {
+    const key = await api(`/admin/tenants/${selectedTenantId}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    });
+    $('newKeyReveal').style.display = 'block';
+    $('newKeyValue').textContent = key.plaintext;
+    toast('API key issued — copy it now', 'success');
+    loadKeys();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function revokeKey(keyId) {
+  if (!selectedTenantId) return;
+  if (!confirm('Revoke this key? It will stop working immediately.')) return;
+  try {
+    await api(`/admin/tenants/${selectedTenantId}/keys/${keyId}`, { method: 'DELETE' });
+    toast('Key revoked', 'success');
+    loadKeys();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function loadPolicy() {
+  if (!selectedTenantId) return;
+  try {
+    const pol = await api(`/admin/tenants/${selectedTenantId}/policy`);
+    if (pol) {
+      $('pol-maxTokens').value = pol.max_tokens_per_request;
+      $('pol-maxRpm').value = pol.max_requests_per_minute;
+      $('pol-costCeiling').value = pol.monthly_cost_ceiling_usd;
+      $('pol-redactPii').value = String(pol.redact_pii);
+      $('pol-allowedModels').value = (pol.allowed_models || []).join(',');
+      $('pol-deniedTopics').value = (pol.denied_topics || []).join(',');
+    }
+  } catch(e) {
+    toast('Failed to load policy: ' + e.message, 'error');
+  }
+}
+
+async function savePolicy() {
+  if (!selectedTenantId) return;
+  const allowedRaw = $('pol-allowedModels').value.trim();
+  const deniedRaw  = $('pol-deniedTopics').value.trim();
+  const body = {
+    max_tokens_per_request: parseInt($('pol-maxTokens').value),
+    max_requests_per_minute: parseInt($('pol-maxRpm').value),
+    monthly_cost_ceiling_usd: parseFloat($('pol-costCeiling').value),
+    redact_pii: $('pol-redactPii').value === 'true',
+    allowed_models: allowedRaw ? allowedRaw.split(',').map(s => s.trim()) : [],
+    denied_topics:  deniedRaw  ? deniedRaw.split(',').map(s => s.trim())  : [],
+  };
+  try {
+    await api(`/admin/tenants/${selectedTenantId}/policy`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+    toast('Policy saved', 'success');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ── Playground ─────────────────────────────────────────────────────────────
+async function sendPlayground() {
+  const key = $('pg-apiKey').value.trim();
+  const model = $('pg-model').value;
+  const system = $('pg-system').value.trim();
+  const message = $('pg-message').value.trim();
+  const maxTokens = parseInt($('pg-maxTokens').value) || 512;
+  const temp = parseFloat($('pg-temp').value) || 1.0;
+
+  if (!message) { toast('Message required', 'error'); return; }
+  if (!connected) { toast('Not connected', 'error'); return; }
+
+  $('pg-response').textContent = '⟳ Sending request...';
+  $('pg-meta').textContent = '';
+  $('pg-details').style.display = 'none';
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (key) headers['Authorization'] = 'Bearer ' + key;
+
+  const body = {
+    model,
+    messages: [{ role: 'user', content: message }],
+    max_tokens: maxTokens,
+    temperature: temp,
+  };
+  if (system) body.system = system;
+
+  const t0 = Date.now();
+  try {
+    const resp = await fetch(GW + '/v1/messages', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const elapsed = Date.now() - t0;
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      $('pg-response').textContent = '✗ ' + (data?.error?.message || JSON.stringify(data, null, 2));
+      $('pg-meta').textContent = `${resp.status} · ${elapsed}ms`;
+      $('pg-meta').style.color = 'var(--red)';
+      return;
+    }
+
+    $('pg-response').textContent = data.content;
+    $('pg-meta').textContent = `${data.provider} · ${elapsed}ms · ${fmtCost(data.cost_usd)}`;
+    $('pg-meta').style.color = 'var(--green)';
+    $('pg-details').style.display = 'block';
+    $('pg-detail-rows').innerHTML = `
+      <tr><td class="form-label" style="padding:3px 0;width:140px;">Request ID</td><td class="mono dim" style="font-size:10px;">${data.request_id}</td></tr>
+      <tr><td class="form-label" style="padding:3px 0;">Model</td><td class="mono" style="font-size:11px;">${data.model}</td></tr>
+      <tr><td class="form-label" style="padding:3px 0;">Provider</td><td><span class="badge ${data.provider}">${data.provider}</span></td></tr>
+      <tr><td class="form-label" style="padding:3px 0;">Input Tokens</td><td class="mono" style="font-size:11px;">${fmt(data.usage?.input_tokens)}</td></tr>
+      <tr><td class="form-label" style="padding:3px 0;">Output Tokens</td><td class="mono" style="font-size:11px;">${fmt(data.usage?.output_tokens)}</td></tr>
+      <tr><td class="form-label" style="padding:3px 0;">Cost</td><td class="mono" style="font-size:11px;color:var(--amber);">${fmtCost(data.cost_usd)}</td></tr>
+      <tr><td class="form-label" style="padding:3px 0;">Stop Reason</td><td class="mono dim" style="font-size:10px;">${data.stop_reason || '—'}</td></tr>
+    `;
+  } catch(e) {
+    $('pg-response').textContent = '✗ ' + e.message;
+    $('pg-meta').textContent = 'Network error';
+    $('pg-meta').style.color = 'var(--red)';
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+// Auto-connect on load if using default URL
+connectGateway().catch(() => {});
+</script>
+</body>
+</html>

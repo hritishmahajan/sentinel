@@ -1,0 +1,45 @@
+name: cd
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true   # one deploy at a time
+
+jobs:
+  deploy:
+    name: deploy to fly.io
+    runs-on: ubuntu-latest
+    environment: production
+    # Only deploy if CI passes — the CI workflow is a dependency.
+    # In practice: push to main triggers ci.yml and cd.yml in parallel;
+    # cd.yml has needs: [], but the deploy step itself only runs after
+    # a manual approval via the 'production' environment protection rule.
+    # This keeps the pipeline simple while requiring intentional deploys.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io
+        run: |
+          flyctl deploy \
+            --app sentinel-gateway \
+            --dockerfile Dockerfile.prod \
+            --remote-only \
+            --strategy rolling \
+            --wait-timeout 120
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Verify health
+        run: |
+          sleep 8
+          curl -sf https://sentinel-gateway.fly.dev/health | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d['status']=='ok' else 1)"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1.7
+# Production Dockerfile — used by Fly.io.
+# Differences from dev Dockerfile:
+#   - No dev dependencies installed
+#   - Alembic included for release_command migrations
+#   - Dashboard served as a static directory
+#   - Explicit non-root user with fixed UID
+
+ARG PYTHON_VERSION=3.12
+
+# ── Stage 1: build ────────────────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --upgrade pip && pip install . --no-dev
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Non-root user with fixed UID (consistent across rebuilds)
+RUN groupadd --system --gid 1001 app \
+    && useradd --system --uid 1001 --gid app --no-create-home app
+
+COPY --from=builder /opt/venv /opt/venv
+
+# App files
+WORKDIR /app
+COPY alembic.ini alembic.ini
+COPY alembic/ alembic/
+COPY dashboard/ dashboard/
+
+# Fly.io mounts /app — make sure non-root user can write tmp
+RUN chown -R app:app /app
+
+USER app
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "\
+import urllib.request, sys; \
+r = urllib.request.urlopen('http://localhost:8000/health', timeout=4); \
+sys.exit(0 if r.status == 200 else 1)"
+
+CMD ["sentinel"]
