@@ -49,8 +49,8 @@ class ProviderRouter:
             return "openai"
         if model.startswith(("grok-", "xai/")):
             return "grok"
-        # Default: try Anthropic, fall back to grok if anthropic unconfigured.
-        return "anthropic"
+        # Default fallback
+        return "mock"
 
     async def _try_provider(
         self, provider_name: str, request: CompletionRequest

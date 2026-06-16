@@ -27,10 +27,24 @@ from sentinel.core.logging import configure_logging, get_logger
 from sentinel.providers.anthropic_provider import AnthropicProvider
 from sentinel.providers.circuit_breaker import CircuitBreaker
 from sentinel.providers.grok_provider import GrokProvider
+from sentinel.providers.mock_provider import MockProvider
 from sentinel.providers.openai_provider import OpenAIProvider
 from sentinel.providers.router import ProviderRouter
 
 log = get_logger(__name__)
+
+
+class _NoOpRedis:
+    """Stand-in for Redis when no Redis URL is configured (dev/SQLite mode)."""
+    async def get(self, key): return None
+    async def set(self, key, value): pass
+    async def incr(self, key): return 0
+    async def expire(self, key, ttl): pass
+    def pipeline(self): return self
+    def delete(self, key): return self
+    async def execute(self): pass
+    def register_script(self, _): return lambda keys, args: [1, 999, 0]
+    async def aclose(self): pass
 
 
 @asynccontextmanager
@@ -41,30 +55,42 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     log.info("startup.begin", environment=settings.environment)
 
-    # ---- Redis pool ----
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    # ---- Redis pool (optional — skipped if REDIS_URL not set) ----
+    redis_url = settings.redis_url or ''
+    if redis_url and redis_url.startswith(('redis://', 'rediss://', 'unix://')):
+        redis = Redis.from_url(redis_url, decode_responses=True)
+    else:
+        from sentinel.core.logging import get_logger as _gl
+        _gl(__name__).warning('startup.redis_skipped', reason='REDIS_URL not set or invalid')
+        redis = None
 
     # ---- Providers + circuit breakers ----
     providers = {}
     breakers = {}
 
+    # Use a no-op Redis stand-in if Redis is not configured
+    breaker_redis = redis if redis is not None else _NoOpRedis()
+
     if settings.anthropic_api_key:
         providers["anthropic"] = AnthropicProvider()
-        breakers["anthropic"] = CircuitBreaker(redis, "anthropic")
+        breakers["anthropic"] = CircuitBreaker(breaker_redis, "anthropic")
         log.info("startup.provider_loaded", provider="anthropic")
 
     if settings.openai_api_key:
         providers["openai"] = OpenAIProvider()
-        breakers["openai"] = CircuitBreaker(redis, "openai")
+        breakers["openai"] = CircuitBreaker(breaker_redis, "openai")
         log.info("startup.provider_loaded", provider="openai")
 
     if settings.xai_api_key:
         providers["grok"] = GrokProvider()
-        breakers["grok"] = CircuitBreaker(redis, "grok")
+        breakers["grok"] = CircuitBreaker(breaker_redis, "grok")
         log.info("startup.provider_loaded", provider="grok")
 
     if not providers:
-        log.warning("startup.no_providers_configured")
+        log.warning("startup.no_providers_configured — loading mock provider")
+        providers["mock"] = MockProvider()
+        breakers["mock"] = CircuitBreaker(breaker_redis, "mock")
+        log.info("startup.provider_loaded", provider="mock")
 
     app.state.redis = redis
     app.state.breakers = breakers
@@ -79,7 +105,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         log.info("shutdown.begin")
-        await redis.aclose()
+        if redis is not None:
+            await redis.aclose()
         log.info("shutdown.complete")
 
 
@@ -116,14 +143,20 @@ def create_app() -> FastAPI:
             ).model_dump(),
         )
 
-    # Serve the admin dashboard at /console
+    # Serve the landing page at root and /console for the ops dashboard
+    @app.get('/', include_in_schema=False)
+    async def landing() -> FileResponse:
+        p = Path(__file__).resolve().parents[4] / 'dashboard' / 'landing.html'
+        if not p.exists():
+            p = Path(__file__).resolve().parents[3] / 'dashboard' / 'landing.html'
+        return FileResponse(str(p), media_type='text/html')
+
     @app.get('/console', include_in_schema=False)
     async def dashboard() -> FileResponse:
-        dash_path = Path(__file__).parent.parent.parent.parent.parent / 'dashboard' / 'index.html'
-        if dash_path.exists():
-            return FileResponse(dash_path, media_type='text/html')
-        fallback = Path(__file__).resolve().parent / 'dashboard_fallback.html'
-        return FileResponse(fallback, media_type='text/html')
+        p = Path(__file__).resolve().parents[4] / 'dashboard' / 'index.html'
+        if not p.exists():
+            p = Path(__file__).resolve().parents[3] / 'dashboard' / 'index.html'
+        return FileResponse(str(p), media_type='text/html')
 
     return app
 
